@@ -1,3 +1,5 @@
+import cdsw
+
 from pyspark.sql import SparkSession
 from pyspark.ml import Pipeline
 from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler, OneHotEncoderEstimator
@@ -9,9 +11,10 @@ from pyspark.ml.evaluation import BinaryClassificationEvaluator
 spark = SparkSession\
     .builder\
     .appName("Airline ML")\
-    .config("spark.executor.memory","8g")\
+    .config("spark.executor.memory","16g")\
     .config("spark.executor.cores","4")\
     .config("spark.driver.memory","6g")\
+    .config("spark.executor.instances","10")\
     .config("spark.yarn.access.hadoopFileSystems","s3a://prod-cdptrialuser19-trycdp-com")\
 .getOrCreate()
 

@@ -9,11 +9,10 @@ spark = SparkSession\
     .config("spark.executor.memory","8g")\
     .config("spark.executor.cores","4")\
     .config("spark.driver.memory","6g")\
-    .config("spark.executor.instances","4")\
     .config("spark.yarn.access.hadoopFileSystems","s3a://prod-cdptrialuser19-trycdp-com")\
     .getOrCreate()
     
-flights_path="s3a://prod-cdptrialuser19-trycdp-com/cdp-lake/data/airlines_csv/*"
+flights_path="s3a://prod-cdptrialuser19-trycdp-com/cdp-lake/data/airlines_lite/*"
 
 from IPython.core.display import HTML
 HTML('<a href="http://spark-{}.{}">Spark UI</a>'.format(os.getenv("CDSW_ENGINE_ID"),os.getenv("CDSW_DOMAIN")))
@@ -58,6 +57,41 @@ flight_raw_df = spark.read.csv(
     nullValue='NA'
 )
 
+#from pyspark.sql.types import StringType	
+#from pyspark.sql.functions import udf,weekofyear
+
+flight_raw_df = flight_raw_df.withColumn('WEEK',weekofyear('FL_DATE').cast('double'))
+
+smaller_data_set = flight_raw_df.select(	
+  "WEEK",	
+  "FL_DATE",
+  "OP_CARRIER",
+  "OP_CARRIER_FL_NUM",
+  "ORIGIN",
+  "DEST",
+  "CRS_DEP_TIME",
+  "CRS_ARR_TIME",
+  "CANCELLED",
+  "CRS_ELAPSED_TIME",
+  "DISTANCE"
+)
+
+# #### Commented out as it has already been run
+#smaller_data_set.write.parquet(
+#  path="s3a://prod-cdptrialuser19-trycdp-com/cdp-lake/data/airlines/airline_parquet",
+#  mode='overwrite',
+#  compression="snappy")
+
+#smaller_data_set.write.saveAsTable(
+#  'default.smaller_flight_table',
+#   format='parquet', 
+#   mode='overwrite', 
+#   path='s3a://prod-cdptrialuser19-trycdp-com/cdp-lake/data/airlines/airline_parquet_table')
+
+spark.sql("select * from default.smaller_flight_table limit 10").show()
+
+# ## This is added info for Hive optimisation
+#
 # #### Simple data enrichment
 # #### Extract year and month and day and enrich the dataframe 
 
@@ -68,13 +102,15 @@ flight_year_month = flight_raw_df \
   
 flight_year_month.cache()
 flight_year_month.createOrReplaceTempView('flights_raw')
-  
+
 # #### Save table in with no optimisation
-flight_year_month.write.saveAsTable(
-  'default.flight_not_partitioned', 
-   format='orc', 
-   mode='overwrite', 
-   path='s3a://prod-cdptrialuser19-trycdp-com/cdp-lake/data/airlines/flight_not_partitioned')
+
+# #### Commented out as it has already been run
+#flight_year_month.write.saveAsTable(
+#  'default.flight_not_partitioned', 
+#   format='orc', 
+#   mode='overwrite', 
+#   path='s3a://prod-cdptrialuser19-trycdp-com/cdp-lake/data/airlines/flight_not_partitioned')
 
 
 # ## optimize - order + partition
@@ -84,8 +120,8 @@ flight_year_month.write.saveAsTable(
 # 2. Some type of partionning of the table 
 #    This has a *major impact* when filtering / slicing 
 
-
-flight_year_month = flight_year_month.orderBy(['YEAR','MONTH','DAYOFMONTH'])
+flight_year_month = flight_year_month.sortWithinPartitions(["YEAR","MONTH","DAYOFMONTH"])
+print('Dataset has {} lines'.format(flight_year_month.count()))
 
 # #### Save data in Hive 
 
@@ -93,12 +129,13 @@ flight_year_month = flight_year_month.orderBy(['YEAR','MONTH','DAYOFMONTH'])
 spark.sql("SET hive.exec.dynamic.partition = true")
 spark.sql("SET hive.exec.dynamic.partition.mode = nonstrict")
 
-flight_year_month.write.saveAsTable(
-  'default.flight_partitioned', 
-   format='orc', 
-   mode='overwrite', 
-   path='s3a://prod-cdptrialuser19-trycdp-com/cdp-lake/data/airlines/flight_partitioned',
-   partitionBy=('YEAR', 'MONTH')) 
+# #### Commented out as it has already been run
+#flight_year_month.write.saveAsTable(
+#  'default.flight_partitioned', 
+#   format='orc', 
+#   mode='overwrite', 
+#   path='s3a://prod-cdptrialuser19-trycdp-com/cdp-lake/data/airlines/flight_partitioned',
+#   partitionBy=('YEAR', 'MONTH')) 
   
 spark.sql("SHOW PARTITIONS default.flight_partitioned").show(100)
 spark.sql("ANALYZE TABLE default.flight_partitioned COMPUTE STATISTICS")
@@ -135,3 +172,5 @@ flight_df2 = spark.sql(statement)
 
 print('dataset has {} lines'.format(flight_df2.count()))
 print("--- %s seconds ---" % (time.time() - start_time2))
+
+spark.stop()
